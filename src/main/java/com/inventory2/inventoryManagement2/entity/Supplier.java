@@ -10,7 +10,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Table(name = "suppliers")
+@Table(
+        name = "suppliers",
+        indexes = {
+                @Index(name = "idx_supplier_email", columnList = "email", unique = true),
+                @Index(name = "idx_supplier_name",  columnList = "name")
+        }
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
