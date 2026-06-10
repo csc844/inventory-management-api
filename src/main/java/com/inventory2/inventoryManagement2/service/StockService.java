@@ -7,6 +7,7 @@ import com.inventory2.inventoryManagement2.exception.InsufficientStockException;
 import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
 import com.inventory2.inventoryManagement2.repository.ProductRepository;
 import com.inventory2.inventoryManagement2.repository.StockRepository;
+import com.inventory2.inventoryManagement2.util.Constants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,11 +104,11 @@ public class StockService   {
         dto.setCreatedAt(stock.getCreatedAt());
 
         if (stock.getQuantity() <= stock.getMinimumLevel()) {
-            dto.setStatus("REORDER");
+            dto.setStatus(Constants.STATUS_REORDER);
         } else if (stock.getQuantity() <= stock.getMinimumLevel() * 2) {
-            dto.setStatus("LOW");
+            dto.setStatus(Constants.STATUS_LOW);
         } else {
-            dto.setStatus("OK");
+            dto.setStatus(Constants.STATUS_OK);
         }
 
         log.debug("Stock status for product '{}': {}", stock.getProduct().getName(), dto.getStatus());
