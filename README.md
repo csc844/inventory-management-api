@@ -38,50 +38,50 @@
 | Build Tool | Maven |
 | Boilerplate Reduction | Lombok |
 
----
-## 🏗️ Project Architecture
+---## 🏗️ Project Architecture
 
-This project follows a **Layered Architecture Pattern** that separates responsibilities into distinct layers, making the application maintainable, scalable, and easy to test.
+This application follows a **Layered Architecture Pattern**, ensuring a clear separation of responsibilities between presentation, business logic, and data access layers. This design improves maintainability, scalability, testability, and code organization.
 
-### Architecture Flow
+### Architecture Overview
 
 ```text
 Client (Postman / Frontend)
             │
             ▼
-┌─────────────────────────┐
-│      REST Controller    │
-│   Request Validation    │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│       Service Layer     │
-│ Business Logic          │
-│ Transaction Management  │
-│ Logging (SLF4J)         │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│    Repository Layer     │
-│ Hibernate SessionFactory│
-│ CRUD Operations         │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│       Hibernate ORM     │
-│ Entity Mapping          │
-└───────────┬─────────────┘
-            │
-            ▼
-┌─────────────────────────┐
-│       MySQL Database    │
-└─────────────────────────┘
+┌──────────────────────────────┐
+│        Controller Layer      │
+│  REST Endpoints & Validation │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│         Service Layer        │
+│  Business Logic              │
+│  Transaction Management      │
+│  Logging & Exception Flow    │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│       Repository Layer       │
+│  Hibernate SessionFactory    │
+│  Database Operations (CRUD)  │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│        Hibernate ORM         │
+│ Entity Mapping & Persistence │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│        MySQL Database        │
+│ Products • Suppliers • Stock │
+└──────────────────────────────┘
 ```
 
-### Request Lifecycle
+### Request Processing Flow
 
 ```text
 HTTP Request
@@ -90,7 +90,7 @@ HTTP Request
 Controller
       │
       ▼
-Request DTO Validation
+DTO Validation
       │
       ▼
 Service Layer
@@ -113,25 +113,25 @@ HTTP Response
 
 ### Key Architectural Decisions
 
-* Native Hibernate `SessionFactory` is used instead of Spring Data JPA.
-* Transactions are managed at the Service layer using `@Transactional`.
-* DTOs isolate API contracts from database entities.
-* Global exception handling provides consistent error responses.
-* HikariCP manages database connections efficiently.
-* Hibernate automatically manages schema updates.
-* Entity relationships are mapped using Hibernate annotations.
-* Indexed columns improve query performance.
+* **Native Hibernate SessionFactory** is used instead of Spring Data JPA to provide greater control over persistence operations.
+* **Repository Layer** encapsulates all database interactions and communicates directly with Hibernate sessions.
+* **Service Layer** owns transaction boundaries using `@Transactional`, ensuring atomic and consistent business operations.
+* **DTO Pattern** separates API contracts from database entities, preventing direct exposure of persistence models.
+* **Global Exception Handling** centralizes error responses and maintains a consistent API error structure.
+* **HikariCP Connection Pooling** optimizes database connectivity and resource utilization.
+* **Database Indexing** improves query performance on frequently accessed columns.
+* **Manual Hibernate Configuration** via `LocalSessionFactoryBean` avoids unnecessary JPA abstractions and provides fine-grained ORM control.
 
 ### Design Principles
 
 * Separation of Concerns (SoC)
 * Single Responsibility Principle (SRP)
 * Layered Architecture
-* DTO Pattern
 * Repository Pattern
+* DTO Pattern
 * Transactional Consistency
 * Centralized Exception Handling
-* Database Performance Optimization
+* Performance-Oriented Database Design
 
 
 ## 📂 Project Structure
@@ -210,42 +210,124 @@ Repositories inject SessionFactory via constructor and call getCurrentSession(),
 
 ### Transaction Management
 @Transactional is placed at the *service layer*. Each service method opens a transaction; the bound Hibernate session is shared across all repository calls within that method and committed or rolled back as a single unit.
-
 ## 🏗️ Project Architecture
 
-This project follows a *layered architecture* with a clean separation of concerns:
+This application follows a **Layered Architecture Pattern**, ensuring a clear separation of responsibilities between presentation, business logic, and data access layers. This design improves maintainability, scalability, testability, and code organization.
 
+### Architecture Overview
 
+```text
+Client (Postman / Frontend)
+            │
+            ▼
+┌──────────────────────────────┐
+│        Controller Layer      │
+│  REST Endpoints & Validation │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│         Service Layer        │
+│  Business Logic              │
+│  Transaction Management      │
+│  Logging & Exception Flow    │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│       Repository Layer       │
+│  Hibernate SessionFactory    │
+│  Database Operations (CRUD)  │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│        Hibernate ORM         │
+│ Entity Mapping & Persistence │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│        MySQL Database        │
+│ Products • Suppliers • Stock │
+└──────────────────────────────┘
+```
+
+### Request Processing Flow
+
+```text
 HTTP Request
-│
-▼
-┌─────────────┐
-│  Controller │  ← Receives HTTP, delegates to service
-└──────┬──────┘
-│
-▼
-┌─────────────┐
-│   Service   │  ← Business logic, @Transactional boundary, SLF4J logging
-└──────┬──────┘
-│
-▼
-┌─────────────┐
-│ Repository  │  ← Data access via Hibernate SessionFactory
-└──────┬──────┘
-│
-▼
-┌─────────────┐
-│   MySQL DB  │  ← Indexed tables: suppliers, products, stocks
-└─────────────┘
+      │
+      ▼
+Controller
+      │
+      ▼
+DTO Validation
+      │
+      ▼
+Service Layer
+      │
+      ▼
+Repository Layer
+      │
+      ▼
+Hibernate Session
+      │
+      ▼
+MySQL Database
+      │
+      ▼
+Response DTO
+      │
+      ▼
+HTTP Response
+```
+
+### Key Architectural Decisions
+
+* **Native Hibernate SessionFactory** is used instead of Spring Data JPA to provide greater control over persistence operations.
+* **Repository Layer** encapsulates all database interactions and communicates directly with Hibernate sessions.
+* **Service Layer** owns transaction boundaries using `@Transactional`, ensuring atomic and consistent business operations.
+* **DTO Pattern** separates API contracts from database entities, preventing direct exposure of persistence models.
+* **Global Exception Handling** centralizes error responses and maintains a consistent API error structure.
+* **HikariCP Connection Pooling** optimizes database connectivity and resource utilization.
+* **Database Indexing** improves query performance on frequently accessed columns.
+* **Manual Hibernate Configuration** via `LocalSessionFactoryBean` avoids unnecessary JPA abstractions and provides fine-grained ORM control.
+
+### Design Principles
+
+* Separation of Concerns (SoC)
+* Single Responsibility Principle (SRP)
+* Layered Architecture
+* Repository Pattern
+* DTO Pattern
+* Transactional Consistency
+* Centralized Exception Handling
+* Performance-Oriented Database Design
 
 
-*Key architectural decisions:*
-- Repositories use native Hibernate SessionFactory (getCurrentSession()) instead of Spring Data JPA
-- Transaction boundaries are owned by the *service layer* via @Transactional
-- HibernateConfig builds SessionFactory directly from DataSource using LocalSessionFactoryBean, avoiding any circular dependency with JPA auto-configuration
-- JPA auto-configuration is excluded since only native Hibernate is used
+### Key Architectural Decisions
 
----
+* **Native Hibernate SessionFactory** is used instead of Spring Data JPA to provide greater control over persistence operations.
+* **Repository Layer** encapsulates all database interactions and communicates directly with Hibernate sessions.
+* **Service Layer** owns transaction boundaries using `@Transactional`, ensuring atomic and consistent business operations.
+* **DTO Pattern** separates API contracts from database entities, preventing direct exposure of persistence models.
+* **Global Exception Handling** centralizes error responses and maintains a consistent API error structure.
+* **HikariCP Connection Pooling** optimizes database connectivity and resource utilization.
+* **Database Indexing** improves query performance on frequently accessed columns.
+* **Manual Hibernate Configuration** via `LocalSessionFactoryBean` avoids unnecessary JPA abstractions and provides fine-grained ORM control.
+
+### Design Principles
+
+* Separation of Concerns (SoC)
+* Single Responsibility Principle (SRP)
+* Layered Architecture
+* Repository Pattern
+* DTO Pattern
+* Transactional Consistency
+* Centralized Exception Handling
+* Performance-Oriented Database Design
+
 ### DTO Pattern
 Entities are never exposed directly. Controllers accept *RequestDto objects (validated with Bean Validation), services map them to entities and back to *ResponseDto objects manually — decoupling the API contract from the database schema.
 
