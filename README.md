@@ -39,6 +39,177 @@
 | Boilerplate Reduction | Lombok |
 
 ---
+## 🏗️ Project Architecture
+
+This project follows a **Layered Architecture Pattern** that separates responsibilities into distinct layers, making the application maintainable, scalable, and easy to test.
+
+### Architecture Flow
+
+```text
+Client (Postman / Frontend)
+            │
+            ▼
+┌─────────────────────────┐
+│      REST Controller    │
+│   Request Validation    │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│       Service Layer     │
+│ Business Logic          │
+│ Transaction Management  │
+│ Logging (SLF4J)         │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│    Repository Layer     │
+│ Hibernate SessionFactory│
+│ CRUD Operations         │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│       Hibernate ORM     │
+│ Entity Mapping          │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│       MySQL Database    │
+└─────────────────────────┘
+```
+
+### Request Lifecycle
+
+```text
+HTTP Request
+      │
+      ▼
+Controller
+      │
+      ▼
+Request DTO Validation
+      │
+      ▼
+Service Layer
+      │
+      ▼
+Repository Layer
+      │
+      ▼
+Hibernate Session
+      │
+      ▼
+MySQL Database
+      │
+      ▼
+Response DTO
+      │
+      ▼
+HTTP Response
+```
+
+### Key Architectural Decisions
+
+* Native Hibernate `SessionFactory` is used instead of Spring Data JPA.
+* Transactions are managed at the Service layer using `@Transactional`.
+* DTOs isolate API contracts from database entities.
+* Global exception handling provides consistent error responses.
+* HikariCP manages database connections efficiently.
+* Hibernate automatically manages schema updates.
+* Entity relationships are mapped using Hibernate annotations.
+* Indexed columns improve query performance.
+
+### Design Principles
+
+* Separation of Concerns (SoC)
+* Single Responsibility Principle (SRP)
+* Layered Architecture
+* DTO Pattern
+* Repository Pattern
+* Transactional Consistency
+* Centralized Exception Handling
+* Database Performance Optimization
+
+
+## 📂 Project Structure
+
+```text
+src/main/java/com/inventory2/inventoryManagement2
+│
+├── config
+│   └── HibernateConfig.java
+│
+├── controller
+│   ├── ProductController.java
+│   ├── SupplierController.java
+│   └── StockController.java
+│
+├── service
+│   ├── ProductService.java
+│   ├── SupplierService.java
+│   └── StockService.java
+│
+├── repository
+│   ├── ProductRepository.java
+│   ├── SupplierRepository.java
+│   └── StockRepository.java
+│
+├── entity
+│   ├── Product.java
+│   ├── Supplier.java
+│   └── Stock.java
+│
+├── dto
+│   ├── ProductRequestDto.java
+│   ├── ProductResponseDto.java
+│   ├── SupplierRequestDto.java
+│   ├── SupplierResponseDto.java
+│   ├── StockRequestDto.java
+│   └── StockResponseDto.java
+│
+├── exception
+│   ├── GlobalExceptionHandler.java
+│   ├── ResourceNotFoundException.java
+│   └── InsufficientStockException.java
+│
+├── enums
+│   └── ProductStatus.java
+│
+└── InventoryManagement2Application.java
+
+src/main/resources
+│
+├── application.properties
+│
+└── static
+
+pom.xml
+README.md
+```
+
+### Package Responsibilities
+
+| Package    | Responsibility                                           |
+| ---------- | -------------------------------------------------------- |
+| config     | Hibernate, DataSource, Transaction Manager configuration |
+| controller | REST API endpoints                                       |
+| service    | Business logic and transaction handling                  |
+| repository | Database access using SessionFactory                     |
+| entity     | Database table mappings                                  |
+| dto        | Request and response payloads                            |
+| exception  | Global exception handling                                |
+| enums      | Application constants and statuses                       |
+
+## 🧠 Concept Implementation
+
+### Native Hibernate SessionFactory
+Repositories inject SessionFactory via constructor and call getCurrentSession(), which requires an active Spring-managed transaction. HibernateConfig builds the factory directly from DataSource using LocalSessionFactoryBean — no dependency on EntityManagerFactory, no circular dependency.
+
+### Transaction Management
+@Transactional is placed at the *service layer*. Each service method opens a transaction; the bound Hibernate session is shared across all repository calls within that method and committed or rolled back as a single unit.
 
 ## 🏗️ Project Architecture
 
@@ -75,61 +246,6 @@ HTTP Request
 - JPA auto-configuration is excluded since only native Hibernate is used
 
 ---
-
-## 📂 Project Structure
-
-
-src/main/java/com/inventory2/inventoryManagement2/
-│
-├── config/
-│   └── HibernateConfig.java          # SessionFactory, DataSource, TransactionManager beans
-│
-├── controller/
-│   ├── ProductController.java
-│   ├── StockController.java
-│   └── SupplierController.java
-│
-├── service/                           # @Transactional + @Slf4j logging
-│   ├── ProductService.java
-│   ├── StockService.java
-│   └── SupplierService.java
-│
-├── repository/                        # Native Hibernate (SessionFactory, not JpaRepository)
-│   ├── ProductRepository.java
-│   ├── StockRepository.java
-│   └── SupplierRepository.java
-│
-├── entity/                            # @Index annotations for DB performance
-│   ├── Product.java                   # ManyToOne → Supplier
-│   ├── Stock.java                     # OneToOne → Product
-│   └── Supplier.java                  # OneToMany → Products
-│
-├── dto/
-│   ├── ProductRequestDto.java / ProductResponseDto.java
-│   ├── StockRequestDto.java  / StockResponseDto.java
-│   └── SupplierRequestDto.java / SupplierResponseDto.java
-│
-├── exception/
-│   ├── GlobalExceptionHandler.java    # @RestControllerAdvice
-│   ├── ResourceNotFoundException.java # 404 responses
-│   └── InsufficientStockException.java# 400 responses
-│
-├── enums/
-│   └── ProductStatus.java             # ACTIVE, INACTIVE, OUT_OF_STOCK
-│
-└── InventoryManagement2Application.java
-
-
----
-
-## 🧠 Concept Implementation
-
-### Native Hibernate SessionFactory
-Repositories inject SessionFactory via constructor and call getCurrentSession(), which requires an active Spring-managed transaction. HibernateConfig builds the factory directly from DataSource using LocalSessionFactoryBean — no dependency on EntityManagerFactory, no circular dependency.
-
-### Transaction Management
-@Transactional is placed at the *service layer*. Each service method opens a transaction; the bound Hibernate session is shared across all repository calls within that method and committed or rolled back as a single unit.
-
 ### DTO Pattern
 Entities are never exposed directly. Controllers accept *RequestDto objects (validated with Bean Validation), services map them to entities and back to *ResponseDto objects manually — decoupling the API contract from the database schema.
 
