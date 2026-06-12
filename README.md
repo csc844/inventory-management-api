@@ -1,533 +1,372 @@
-# 📦 Inventory Management API
+# Inventory Management API
 
-> A production-ready RESTful API for managing products, suppliers, and real-time stock levels — built with Spring Boot 4 and native Hibernate SessionFactory.
+> A RESTful API for managing products, suppliers, and real-time stock levels — built with Spring Boot 4 and native Hibernate SessionFactory, with Kafka event streaming, multi-tier caching, and persistent stock history.
 
 ![Java](https://img.shields.io/badge/Java-17-orange?style=flat-square&logo=java)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0.6-brightgreen?style=flat-square&logo=springboot)
 ![Hibernate](https://img.shields.io/badge/Hibernate-7.2-blue?style=flat-square&logo=hibernate)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-blue?style=flat-square&logo=mysql)
-![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-3.x-black?style=flat-square&logo=apachekafka)
+![Redis](https://img.shields.io/badge/Redis-7.x-red?style=flat-square&logo=redis)
 
 ---
 
-## ✨ Features
+## Features
 
-- ✅ Full *CRUD* for Suppliers and Products
-- ✅ *Stock management* — add, remove, and track inventory levels
-- ✅ *Real-time stock status* — OK / LOW / REORDER computed on every read
-- ✅ *Global exception handling* with consistent JSON error responses
-- ✅ *Bean Validation* on all request DTOs
-- ✅ *Database indexing* on frequently queried columns
-- ✅ *SLF4J logging* across all service operations
-- ✅ *HikariCP* connection pooling
-- ✅ Native *Hibernate SessionFactory* (no Spring Data JPA abstraction)
+- Full **CRUD** for Suppliers and Products
+- **Stock management** — add, remove, and track inventory levels
+- **Real-time stock status** — `OK` / `LOW` / `REORDER` computed on every read
+- **Kafka producer + consumer** — stock change events published and consumed within the same service
+- **Stock history table** — every stock mutation is persisted from the Kafka consumer
+- **Multi-tier caching** — Redis, LRU, and Caffeine caches across different endpoints
+- **Global exception handling** with consistent JSON error responses
+- **Bean Validation** on all request DTOs
+- **Database indexing** on frequently queried columns
+- **HikariCP** connection pooling
+- Native **Hibernate SessionFactory** (no Spring Data JPA abstraction)
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Language | Java 17 |
-| Framework | Spring Boot 4.0.6 (Spring Framework 7) |
+| Framework | Spring Boot 4.0.6 |
 | ORM | Hibernate 7.2 (native SessionFactory) |
 | Database | MySQL 8 |
-| Connection Pool | HikariCP 7 |
+| Message Broker | Apache Kafka |
+| Cache — Distributed | Redis 7 |
+| Cache — In-Memory LRU | Java `LinkedHashMap` (access-order) |
+| Cache — In-Memory TTL | Caffeine |
+| Connection Pool | HikariCP |
 | Validation | Jakarta Bean Validation |
-| Logging | SLF4J + Logback (via Lombok @Slf4j) |
+| Logging | SLF4J + Logback (`@Slf4j`) |
 | Build Tool | Maven |
-| Boilerplate Reduction | Lombok |
+| Boilerplate | Lombok |
 
----## 🏗️ Project Architecture
+---
 
-This application follows a **Layered Architecture Pattern**, ensuring a clear separation of responsibilities between presentation, business logic, and data access layers. This design improves maintainability, scalability, testability, and code organization.
+## Architecture
 
-### Architecture Overview
-
-```text
-Client (Postman / Frontend)
-            │
-            ▼
-┌──────────────────────────────┐
-│        Controller Layer      │
-│  REST Endpoints & Validation │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│         Service Layer        │
-│  Business Logic              │
-│  Transaction Management      │
-│  Logging & Exception Flow    │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│       Repository Layer       │
-│  Hibernate SessionFactory    │
-│  Database Operations (CRUD)  │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│        Hibernate ORM         │
-│ Entity Mapping & Persistence │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│        MySQL Database        │
-│ Products • Suppliers • Stock │
-└──────────────────────────────┘
 ```
-
-### Request Processing Flow
-
-```text
 HTTP Request
-      │
-      ▼
-Controller
-      │
-      ▼
-DTO Validation
-      │
-      ▼
-Service Layer
-      │
-      ▼
-Repository Layer
-      │
-      ▼
-Hibernate Session
-      │
-      ▼
-MySQL Database
-      │
-      ▼
-Response DTO
-      │
-      ▼
-HTTP Response
+     │
+     ▼
+┌─────────────┐
+│  Controller │  ← Receives HTTP, delegates to service
+└──────┬──────┘
+       │
+       ▼
+┌────────────────────────────────────┐
+│            Service                 │
+│  ┌──────────┐  ┌────────────────┐  │
+│  │  Cache   │  │ Kafka Producer │  │  ← Check cache first; publish event on mutation
+│  │(Redis /  │  └────────┬───────┘  │
+│  │LRU /     │           │          │
+│  │Caffeine) │           ▼          │
+│  └──────────┘    Kafka Topic       │
+└──────┬─────────────────────────────┘
+       │                  │
+       ▼                  ▼
+┌─────────────┐   ┌───────────────────┐
+│ Repository  │   │  KafkaConsumer    │  ← Persists to stock_history table
+│ (Hibernate) │   └───────────────────┘
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   MySQL DB  │
+└─────────────┘
 ```
 
-### Key Architectural Decisions
+---
 
-* **Native Hibernate SessionFactory** is used instead of Spring Data JPA to provide greater control over persistence operations.
-* **Repository Layer** encapsulates all database interactions and communicates directly with Hibernate sessions.
-* **Service Layer** owns transaction boundaries using `@Transactional`, ensuring atomic and consistent business operations.
-* **DTO Pattern** separates API contracts from database entities, preventing direct exposure of persistence models.
-* **Global Exception Handling** centralizes error responses and maintains a consistent API error structure.
-* **HikariCP Connection Pooling** optimizes database connectivity and resource utilization.
-* **Database Indexing** improves query performance on frequently accessed columns.
-* **Manual Hibernate Configuration** via `LocalSessionFactoryBean` avoids unnecessary JPA abstractions and provides fine-grained ORM control.
+## Project Structure
 
-### Design Principles
-
-* Separation of Concerns (SoC)
-* Single Responsibility Principle (SRP)
-* Layered Architecture
-* Repository Pattern
-* DTO Pattern
-* Transactional Consistency
-* Centralized Exception Handling
-* Performance-Oriented Database Design
-
-
-## 📂 Project Structure
-
-```text
-src/main/java/com/inventory2/inventoryManagement2
+```
+src/main/java/com/inventory2/inventoryManagement2/
 │
-├── config
-│   └── HibernateConfig.java
+├── config/
+│   ├── HibernateConfig.java        # SessionFactory, DataSource, TransactionManager
+│   ├── KafkaConfig.java            # ProducerFactory, ConsumerFactory, KafkaTemplate
+│   └── CaffeineConfig.java         # Caffeine Cache<String, StockResponseDto> bean
 │
-├── controller
+├── kafka/
+│   ├── StockEvent.java             # Event DTO: productId, operation, quantity, timestamp
+│   ├── KafkaProducerService.java   # Publishes StockEvent to "stock-events" topic
+│   └── KafkaConsumerService.java   # Consumes events, saves to stock_history table
+│
+├── cache/
+│   └── LruCacheService.java        # Thread-safe LRU via LinkedHashMap (access-order)
+│
+├── controller/
 │   ├── ProductController.java
-│   ├── SupplierController.java
-│   └── StockController.java
+│   ├── StockController.java
+│   └── SupplierController.java
 │
-├── service
-│   ├── ProductService.java
-│   ├── SupplierService.java
-│   └── StockService.java
+├── service/
+│   ├── ProductService.java         # Redis write-through on create
+│   ├── StockService.java           # Redis write-through + Caffeine read cache + Kafka publish
+│   └── SupplierService.java        # Redis write-through + LRU read cache
 │
-├── repository
+├── repository/
 │   ├── ProductRepository.java
-│   ├── SupplierRepository.java
-│   └── StockRepository.java
+│   ├── StockRepository.java
+│   ├── StockHistoryRepository.java # Stores history records consumed from Kafka
+│   └── SupplierRepository.java
 │
-├── entity
-│   ├── Product.java
-│   ├── Supplier.java
-│   └── Stock.java
+├── entity/
+│   ├── Product.java                # ManyToOne → Supplier
+│   ├── Stock.java                  # OneToOne → Product
+│   ├── StockHistory.java           # History record: operation, quantityChanged, timestamp
+│   └── Supplier.java               # OneToMany → Products
 │
-├── dto
-│   ├── ProductRequestDto.java
-│   ├── ProductResponseDto.java
-│   ├── SupplierRequestDto.java
-│   ├── SupplierResponseDto.java
-│   ├── StockRequestDto.java
-│   └── StockResponseDto.java
+├── dto/
+│   ├── ProductRequestDto.java / ProductResponseDto.java
+│   ├── StockRequestDto.java  / StockResponseDto.java
+│   └── SupplierRequestDto.java / SupplierResponseDto.java
 │
-├── exception
+├── exception/
 │   ├── GlobalExceptionHandler.java
 │   ├── ResourceNotFoundException.java
 │   └── InsufficientStockException.java
 │
-├── enums
-│   └── ProductStatus.java
+├── enums/
+│   └── ProductStatus.java          # ACTIVE, INACTIVE, OUT_OF_STOCK
 │
 └── InventoryManagement2Application.java
-
-src/main/resources
-│
-├── application.properties
-│
-└── static
-
-pom.xml
-README.md
 ```
 
-### Package Responsibilities
+---
 
-| Package    | Responsibility                                           |
-| ---------- | -------------------------------------------------------- |
-| config     | Hibernate, DataSource, Transaction Manager configuration |
-| controller | REST API endpoints                                       |
-| service    | Business logic and transaction handling                  |
-| repository | Database access using SessionFactory                     |
-| entity     | Database table mappings                                  |
-| dto        | Request and response payloads                            |
-| exception  | Global exception handling                                |
-| enums      | Application constants and statuses                       |
+## Kafka — Producer & Consumer
 
-## 🧠 Concept Implementation
+Both the producer and consumer live in the same service.
 
-### Native Hibernate SessionFactory
-Repositories inject SessionFactory via constructor and call getCurrentSession(), which requires an active Spring-managed transaction. HibernateConfig builds the factory directly from DataSource using LocalSessionFactoryBean — no dependency on EntityManagerFactory, no circular dependency.
+**Topic:** `stock-events`
 
-### Transaction Management
-@Transactional is placed at the *service layer*. Each service method opens a transaction; the bound Hibernate session is shared across all repository calls within that method and committed or rolled back as a single unit.
-## 🏗️ Project Architecture
-
-This application follows a **Layered Architecture Pattern**, ensuring a clear separation of responsibilities between presentation, business logic, and data access layers. This design improves maintainability, scalability, testability, and code organization.
-
-### Architecture Overview
-
-```text
-Client (Postman / Frontend)
-            │
-            ▼
-┌──────────────────────────────┐
-│        Controller Layer      │
-│  REST Endpoints & Validation │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│         Service Layer        │
-│  Business Logic              │
-│  Transaction Management      │
-│  Logging & Exception Flow    │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│       Repository Layer       │
-│  Hibernate SessionFactory    │
-│  Database Operations (CRUD)  │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│        Hibernate ORM         │
-│ Entity Mapping & Persistence │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│        MySQL Database        │
-│ Products • Suppliers • Stock │
-└──────────────────────────────┘
+**Producer** (`KafkaProducerService`) — called by `StockService` after every `addStock` or `removeStock`:
+```json
+{
+  "productId": 1,
+  "productName": "Laptop",
+  "operation": "ADD",
+  "quantityChanged": 50,
+  "quantityAfter": 75,
+  "timestamp": "2026-06-12T10:30:00"
+}
 ```
 
-### Request Processing Flow
+**Consumer** (`KafkaConsumerService`) — listens on the same topic and persists each event to the `stock_history` table:
 
-```text
-HTTP Request
-      │
-      ▼
-Controller
-      │
-      ▼
-DTO Validation
-      │
-      ▼
-Service Layer
-      │
-      ▼
-Repository Layer
-      │
-      ▼
-Hibernate Session
-      │
-      ▼
-MySQL Database
-      │
-      ▼
-Response DTO
-      │
-      ▼
-HTTP Response
+```
+stock_history
+─────────────────────────────────────────────────
+id | productId | productName | operation | quantityChanged | quantityAfter | timestamp
 ```
 
-### Key Architectural Decisions
+Kafka is configured with a custom `ObjectMapper` (JavaTimeModule) so `LocalDateTime` serializes as ISO-8601 strings.
 
-* **Native Hibernate SessionFactory** is used instead of Spring Data JPA to provide greater control over persistence operations.
-* **Repository Layer** encapsulates all database interactions and communicates directly with Hibernate sessions.
-* **Service Layer** owns transaction boundaries using `@Transactional`, ensuring atomic and consistent business operations.
-* **DTO Pattern** separates API contracts from database entities, preventing direct exposure of persistence models.
-* **Global Exception Handling** centralizes error responses and maintains a consistent API error structure.
-* **HikariCP Connection Pooling** optimizes database connectivity and resource utilization.
-* **Database Indexing** improves query performance on frequently accessed columns.
-* **Manual Hibernate Configuration** via `LocalSessionFactoryBean` avoids unnecessary JPA abstractions and provides fine-grained ORM control.
+---
 
-### Design Principles
+## Caching Strategy
 
-* Separation of Concerns (SoC)
-* Single Responsibility Principle (SRP)
-* Layered Architecture
-* Repository Pattern
-* DTO Pattern
-* Transactional Consistency
-* Centralized Exception Handling
-* Performance-Oriented Database Design
+### Fetch endpoints
 
+| Endpoint | Cache | Behaviour |
+|---|---|---|
+| `GET /suppliers/{id}` | **Redis** (30 min TTL) | Redis hit → return; miss → DB → put in Redis |
+| `GET /suppliers` | **LRU** (max 100 entries) | LRU hit → return; miss → DB → put in LRU |
+| `GET /stock/{productId}` | **Caffeine** (10 min TTL, max 500) | Caffeine hit → return; miss → DB → put in Caffeine |
 
-### Key Architectural Decisions
+All cache reads fall back to the DAO on miss or error — cache failures never break the API.
 
-* **Native Hibernate SessionFactory** is used instead of Spring Data JPA to provide greater control over persistence operations.
-* **Repository Layer** encapsulates all database interactions and communicates directly with Hibernate sessions.
-* **Service Layer** owns transaction boundaries using `@Transactional`, ensuring atomic and consistent business operations.
-* **DTO Pattern** separates API contracts from database entities, preventing direct exposure of persistence models.
-* **Global Exception Handling** centralizes error responses and maintains a consistent API error structure.
-* **HikariCP Connection Pooling** optimizes database connectivity and resource utilization.
-* **Database Indexing** improves query performance on frequently accessed columns.
-* **Manual Hibernate Configuration** via `LocalSessionFactoryBean` avoids unnecessary JPA abstractions and provides fine-grained ORM control.
+### Save / update endpoints
 
-### Design Principles
-
-* Separation of Concerns (SoC)
-* Single Responsibility Principle (SRP)
-* Layered Architecture
-* Repository Pattern
-* DTO Pattern
-* Transactional Consistency
-* Centralized Exception Handling
-* Performance-Oriented Database Design
-
-### DTO Pattern
-Entities are never exposed directly. Controllers accept *RequestDto objects (validated with Bean Validation), services map them to entities and back to *ResponseDto objects manually — decoupling the API contract from the database schema.
-
-### Stock Status Logic
-Stock status is *not persisted* — derived at read time in StockService.mapToDto():
-
-
-quantity ≤ minimumLevel          →  REORDER
-quantity ≤ minimumLevel × 2      →  LOW
-quantity > minimumLevel × 2      →  OK
-
-
-Default minimumLevel is 10.
-
-### Database Indexing
-Indexes defined via @Index in @Table annotations — created automatically by Hibernate on startup:
-
-| Table | Index | Column | Type |
-|---|---|---|---|
-| suppliers | idx_supplier_email | email | Unique |
-| suppliers | idx_supplier_name | name | Regular |
-| products | idx_product_supplier | supplier_id | Regular |
-| products | idx_product_status | status | Regular |
-| products | idx_product_name | name | Regular |
-| stocks | idx_stock_product | product_id | Unique |
-
-### SLF4J Logging
-All service classes use Lombok's @Slf4j annotation. Log levels:
-- INFO — every operation start and successful completion
-- WARN — resource not found, insufficient stock
-- DEBUG — internal details (quantities, stock status) hidden in production
-
-### Global EInitial commit - Inventory Management APIInitial commit - Inventory Management APIxception Handling
-@RestControllerAdvice intercepts all exceptions and returns a uniform JSON error envelope:
-
-| Exception | HTTP Status |
+| Endpoint | Action |
 |---|---|
-| ResourceNotFoundException | 404 Not Found |
-| InsufficientStockException | 400 Bad Request |
-| MethodArgumentNotValidException | 400 Bad Request (with field errors) |
-| Exception (catch-all) | 500 Internal Server Error |
+| `POST /suppliers` | Save to Redis; evict LRU |
+| `PUT /suppliers/{id}` | Update Redis; evict LRU |
+| `DELETE /suppliers/{id}` | Evict from Redis; evict LRU |
+| `POST /stock/add` | Save to Redis + Caffeine |
+| `POST /stock/remove` | Save to Redis + Caffeine |
+| `POST /products` | Save to Redis |
 
 ---
 
-## 🗄️ Data Model
+## Data Model
 
-
+```
 Supplier (1) ──────── (N) Product (1) ──────── (1) Stock
-- id                      - id                     - id
-- name                    - name                   - quantity
-- email (unique)          - price                  - minimumLevel
-- phone                   - status (enum)          - createdAt
-- createdAt               - createdAt
+  - id                      - id                     - id
+  - name                    - name                   - quantity
+  - email (unique)          - price                  - minimumLevel
+  - phone                   - status (enum)          - createdAt
+  - createdAt               - createdAt
 
+StockHistory
+  - id
+  - productId
+  - productName
+  - operation          (ADD / REMOVE)
+  - quantityChanged
+  - quantityAfter
+  - timestamp
+```
+
+### Stock status logic (computed at read time, not persisted)
+
+```
+quantity ≤ minimumLevel        →  REORDER
+quantity ≤ minimumLevel × 2    →  LOW
+quantity > minimumLevel × 2    →  OK
+```
+
+Default `minimumLevel` = `10`.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
+
 - Java 17+
-- MySQL 8 running on localhost:3306
+- MySQL 8 on `localhost:3306`
+- Apache Kafka on `localhost:9092`
+- Redis on `localhost:6379`
 
 ### Database Setup
 
-sql
+```sql
 CREATE DATABASE inventory_db;
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root';
 FLUSH PRIVILEGES;
+```
 
+Hibernate DDL is set to `update` — all tables (`suppliers`, `products`, `stocks`, `stock_history`) are created automatically on startup.
 
-### Run
+### Start Kafka (local)
 
-bash
+```bash
+# Start ZooKeeper
+bin/zookeeper-server-start.sh config/zookeeper.properties
+
+# Start Kafka broker
+bin/kafka-server-start.sh config/server.properties
+```
+
+### Run the application
+
+```bash
 ./mvnw spring-boot:run
+```
 
-
-API base URL: http://localhost:8080
+API base URL: `http://localhost:8080`  
+Swagger UI: `http://localhost:8080/swagger-ui.html`
 
 ### Build & Test
 
-bash
-# Build
+```bash
 ./mvnw clean install
-
-# Run all tests
 ./mvnw test
-
-# Run a single test
-./mvnw test -Dtest=InventoryManagement2ApplicationTests
-
+```
 
 ---
 
-## 📡 API Endpoints
+## API Endpoints
 
-### 🏭 Suppliers
+### Suppliers
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /suppliers | Create a new supplier |
-| GET | /suppliers | Get all suppliers |
-| GET | /suppliers/{id} | Get supplier by ID |
-| PUT | /suppliers/{id} | Update supplier |
-| DELETE | /suppliers/{id} | Delete supplier |
+| Method | Endpoint | Description | Cache |
+|--------|----------|-------------|-------|
+| `POST` | `/suppliers` | Create supplier | Writes to Redis |
+| `GET` | `/suppliers` | List all suppliers | LRU cache |
+| `GET` | `/suppliers/{id}` | Get supplier by ID | Redis cache |
+| `PUT` | `/suppliers/{id}` | Update supplier | Writes to Redis |
+| `DELETE` | `/suppliers/{id}` | Delete supplier | Evicts Redis + LRU |
 
-*Request Body:*
-json
+**Request body:**
+```json
 {
-"name": "ABC Supplies",
-"email": "abc@supplies.com",
-"phone": "9876543210"
+  "name": "ABC Supplies",
+  "email": "abc@supplies.com",
+  "phone": "9876543210"
 }
-
+```
 
 ---
 
-### 📦 Products
+### Products
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /products | Create a new product |
+| Method | Endpoint | Description | Cache |
+|--------|----------|-------------|-------|
+| `POST` | `/products` | Create product | Writes to Redis |
 
-*Request Body:*
-json
+**Request body:**
+```json
 {
-"name": "Laptop",
-"price": 75000.00,
-"supplierId": 1
+  "name": "Laptop",
+  "price": 75000.00,
+  "supplierId": 1
 }
-
+```
 
 ---
 
-### 📊 Stock
+### Stock
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /stock/add?productId=1&quantity=50 | Add stock |
-| POST | /stock/remove?productId=1&quantity=10 | Remove stock |
-| GET | /stock/{productId} | Get stock details and status |
+| Method | Endpoint | Description | Cache |
+|--------|----------|-------------|-------|
+| `POST` | `/stock/add?productId=1&quantity=50` | Add stock | Writes to Redis + Caffeine; publishes Kafka event |
+| `POST` | `/stock/remove?productId=1&quantity=10` | Remove stock | Writes to Redis + Caffeine; publishes Kafka event |
+| `GET` | `/stock/{productId}` | Get stock | Caffeine cache |
 
-*Stock Response:*
-json
+**Stock response:**
+```json
 {
-"id": 1,
-"productName": "Laptop",
-"quantity": 25,
-"minimumLevel": 10,
-"status": "LOW",
-"createdAt": "2026-06-10T10:00:00"
+  "id": 1,
+  "productName": "Laptop",
+  "quantity": 25,
+  "minimumLevel": 10,
+  "status": "LOW",
+  "createdAt": "2026-06-12T10:00:00"
 }
-
+```
 
 ---
 
-## ⚠️ Error Responses
+## Configuration
 
-json
-{
-"timestamp": "2026-06-10T10:00:00",
-"status": 404,
-"error": "Supplier not found with id: 5"
-}
+`src/main/resources/application.properties`
 
-
-*Validation errors:*
-json
-{
-"timestamp": "2026-06-10T10:00:00",
-"status": 400,
-"errors": {
-"name": "Product name is required",
-"price": "Price must be positive"
-}
-}
-
-
----
-
-## ⚙️ Configuration
-
-src/main/resources/application.properties
-
-properties
+```properties
+# Database
 spring.datasource.url=jdbc:mysql://localhost:3306/inventory_db
 spring.datasource.username=root
 spring.datasource.password=root
 spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
 
+# Kafka
+spring.kafka.bootstrap-servers=localhost:9092
 
----
-
-## 👨‍💻 Author
-
-*Ansh Singla*
-
-> Built with passion for clean architecture and hands-on Hibernate mastery.
+# Redis
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
+```
 
 ---
 
-<p align="center">Made with ❤️ using Spring Boot & Hibernate</p>
+## Key Concepts
+
+### Native Hibernate SessionFactory
+Repositories inject `SessionFactory` directly and call `getCurrentSession()` per operation. `HibernateConfig` builds the factory from `DataSource` via `LocalSessionFactoryBean` — no JPA abstraction, no `EntityManagerFactory`.
+
+### Transaction Management
+`@Transactional` is at the service layer. Each service method owns a single transaction shared across all repository calls within it. The Kafka consumer method is also `@Transactional` so history saves are atomic.
+
+### DTO Pattern
+Entities are never exposed directly. Controllers accept `*RequestDto` (Bean Validation), services map to entities and return `*ResponseDto` — decoupling API contract from DB schema.
+
+### Cache Failure Safety
+All Redis reads/writes are wrapped in try-catch — a Redis outage degrades gracefully to DB-only operation without throwing to the caller.

@@ -28,7 +28,7 @@ public class StockRepository {
 
     public Optional<Stock> findById(Long id) {
         Session session = sessionFactory.getCurrentSession();
-        return Optional.ofNullable(session.get(Stock.class, id));
+        return Optional.ofNullable(session.find(Stock.class, id));
     }
 
     public Optional<Stock> findByProductId(Long productId) {

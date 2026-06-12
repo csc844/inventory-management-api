@@ -2,12 +2,13 @@ package com.inventory2.inventoryManagement2;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
 
-@SpringBootApplication()
+@SpringBootApplication
+@EnableAsync
 public class InventoryManagement2Application {
 
 	public static void main(String[] args) {
 		SpringApplication.run(InventoryManagement2Application.class, args);
 	}
-
 }

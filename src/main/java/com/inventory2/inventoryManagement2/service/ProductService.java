@@ -9,29 +9,34 @@ import com.inventory2.inventoryManagement2.repository.ProductRepository;
 import com.inventory2.inventoryManagement2.repository.SupplierRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 @Slf4j
 @Service
 @Transactional
-@RequiredArgsConstructor(onConstructor = @__(@Autowired))
-public class  ProductService {
+@RequiredArgsConstructor
+public class ProductService {
+
+    private static final String PRODUCT_KEY_PREFIX = "product:";
 
     private final ProductRepository productRepository;
     private final SupplierRepository supplierRepository;
+    private final StringRedisTemplate redisTemplate;
+    private final ObjectMapper objectMapper;
+
+    // ---------------- CREATE — writes to Redis cache ----------------
 
     public ProductResponseDto createProduct(ProductRequestDto dto) {
         log.info("Creating product with name: {} for supplierId: {}", dto.getName(), dto.getSupplierId());
 
         Supplier supplier = supplierRepository.findById(dto.getSupplierId())
-                .orElseThrow(() -> {
-                    log.warn("Supplier not found with id: {}", dto.getSupplierId());
-                    return new ResourceNotFoundException("Supplier not found with id: " + dto.getSupplierId());
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + dto.getSupplierId()));
 
         Product product = Product.builder()
                 .name(dto.getName())
@@ -42,7 +47,6 @@ public class  ProductService {
                 .build();
 
         Product saved = productRepository.save(product);
-        log.info("Product created successfully with id: {}", saved.getId());
 
         ProductResponseDto response = new ProductResponseDto();
         response.setId(saved.getId());
@@ -52,6 +56,20 @@ public class  ProductService {
         response.setStatus(String.valueOf(saved.getStatus()));
         response.setCreatedAt(saved.getCreatedAt());
 
+        putToRedis(PRODUCT_KEY_PREFIX + saved.getId(), response);
+
+        log.info("Product created with id: {}", saved.getId());
         return response;
+    }
+
+    // ---------------- Redis helper ----------------
+
+    private void putToRedis(String key, Object value) {
+        try {
+            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), Duration.ofMinutes(30));
+            log.debug("Saved to Redis: {}", key);
+        } catch (Exception e) {
+            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
+        }
     }
 }

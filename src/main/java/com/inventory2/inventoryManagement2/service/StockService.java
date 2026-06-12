@@ -1,45 +1,50 @@
 package com.inventory2.inventoryManagement2.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.inventory2.inventoryManagement2.dto.StockResponseDto;
 import com.inventory2.inventoryManagement2.entity.Product;
 import com.inventory2.inventoryManagement2.entity.Stock;
 import com.inventory2.inventoryManagement2.exception.InsufficientStockException;
 import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
+import com.inventory2.inventoryManagement2.kafka.KafkaProducerService;
+import com.inventory2.inventoryManagement2.kafka.StockEvent;
 import com.inventory2.inventoryManagement2.repository.ProductRepository;
 import com.inventory2.inventoryManagement2.repository.StockRepository;
-import com.inventory2.inventoryManagement2.util.Constants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 @Slf4j
 @Service
 @Transactional
-@RequiredArgsConstructor(onConstructor = @__(@Autowired))
-public class StockService   {
+@RequiredArgsConstructor
+public class StockService {
+
+    private static final String STOCK_KEY_PREFIX = "stock:";
 
     private final StockRepository stockRepository;
     private final ProductRepository productRepository;
+    private final KafkaProducerService kafkaProducerService;
+    private final StringRedisTemplate redisTemplate;
+    private final Cache<String, StockResponseDto> stockCaffeineCache;
+    private final ObjectMapper objectMapper;
 
-    // ---------------- ADD STOCK ----------------
+    // ---------------- ADD STOCK — writes to Redis + Caffeine, publishes Kafka event ----------------
 
     public StockResponseDto addStock(Long productId, Integer quantity) {
         log.info("Adding {} units to productId: {}", quantity, productId);
 
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> {
-                    log.warn("Product not found with id: {}", productId);
-                    return new ResourceNotFoundException("Product not found with id: " + productId);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
 
-        Stock stock = stockRepository.findById(productId).orElse(null);
-
+        Stock stock = stockRepository.findByProductId(productId).orElse(null);
         if (stock == null) {
-            log.debug("No existing stock for productId: {}, creating new stock entry", productId);
             stock = Stock.builder()
                     .product(product)
                     .quantity(quantity)
@@ -47,54 +52,95 @@ public class StockService   {
                     .createdAt(LocalDateTime.now())
                     .build();
         } else {
-            log.debug("Existing stock: {}, adding: {}", stock.getQuantity(), quantity);
             stock.setQuantity(stock.getQuantity() + quantity);
         }
 
         Stock saved = stockRepository.save(stock);
-        log.info("Stock updated for productId: {}, new quantity: {}", productId, saved.getQuantity());
+        StockResponseDto response = mapToDto(saved);
 
-        return mapToDto(saved);
+        putToRedis(STOCK_KEY_PREFIX + productId, response);
+        stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, response);
+
+        kafkaProducerService.publishStockEvent(StockEvent.builder()
+                .productId(productId)
+                .productName(product.getName())
+                .operation("ADD")
+                .quantityChanged(quantity)
+                .quantityAfter(saved.getQuantity())
+                .timestamp(LocalDateTime.now())
+                .build());
+
+        log.info("Stock updated for productId: {}, new quantity: {}", productId, saved.getQuantity());
+        return response;
     }
 
-    // ---------------- REMOVE STOCK ----------------
+    // ---------------- REMOVE STOCK — writes to Redis + Caffeine, publishes Kafka event ----------------
 
     public StockResponseDto removeStock(Long productId, Integer quantity) {
         log.info("Removing {} units from productId: {}", quantity, productId);
 
         Stock stock = stockRepository.findByProductId(productId)
-                .orElseThrow(() -> {
-                    log.warn("Stock not found for productId: {}", productId);
-                    return new ResourceNotFoundException("Stock not found for product id: " + productId);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("Stock not found for product id: " + productId));
 
         if (stock.getQuantity() < quantity) {
-            log.warn("Insufficient stock for productId: {}. Available: {}, Requested: {}", productId, stock.getQuantity(), quantity);
-            throw new InsufficientStockException("Insufficient stock: available " + stock.getQuantity() + ", requested " + quantity);
+            throw new InsufficientStockException(
+                    "Insufficient stock: available " + stock.getQuantity() + ", requested " + quantity);
         }
 
         stock.setQuantity(stock.getQuantity() - quantity);
         Stock saved = stockRepository.save(stock);
-        log.info("Stock removed for productId: {}, remaining quantity: {}", productId, saved.getQuantity());
+        StockResponseDto response = mapToDto(saved);
 
-        return mapToDto(saved);
+        putToRedis(STOCK_KEY_PREFIX + productId, response);
+        stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, response);
+
+        kafkaProducerService.publishStockEvent(StockEvent.builder()
+                .productId(productId)
+                .productName(stock.getProduct().getName())
+                .operation("REMOVE")
+                .quantityChanged(quantity)
+                .quantityAfter(saved.getQuantity())
+                .timestamp(LocalDateTime.now())
+                .build());
+
+        log.info("Stock removed for productId: {}, remaining: {}", productId, saved.getQuantity());
+        return response;
     }
 
-    // ---------------- GET STOCK ----------------
+    // ---------------- GET STOCK — Caffeine cache ----------------
 
     public StockResponseDto getStock(Long productId) {
         log.info("Fetching stock for productId: {}", productId);
+        String key = STOCK_KEY_PREFIX + productId;
 
+        StockResponseDto cached = stockCaffeineCache.getIfPresent(key);
+        if (cached != null) {
+            log.debug("Caffeine cache hit for productId: {}", productId);
+            return cached;
+        }
+
+        log.debug("Caffeine cache miss, querying DB for productId: {}", productId);
         Stock stock = stockRepository.findByProductId(productId)
-                .orElseThrow(() -> {
-                    log.warn("Stock not found for productId: {}", productId);
-                    return new ResourceNotFoundException("Stock not found for product id: " + productId);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("Stock not found for product id: " + productId));
 
-        return mapToDto(stock);
+        StockResponseDto response = mapToDto(stock);
+        stockCaffeineCache.put(key, response);
+        return response;
     }
 
-    // ---------------- MAPPER ----------------
+    // ---------------- Redis helper ----------------
+
+    private void putToRedis(String key, Object value) {
+        try {
+            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), Duration.ofMinutes(30));
+            log.debug("Saved to Redis: {}", key);
+        } catch (Exception e) {
+            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
+        }
+    }
+
+    // ---------------- Mapper ----------------
+
     private StockResponseDto mapToDto(Stock stock) {
         StockResponseDto dto = new StockResponseDto();
         dto.setId(stock.getId());
@@ -104,14 +150,12 @@ public class StockService   {
         dto.setCreatedAt(stock.getCreatedAt());
 
         if (stock.getQuantity() <= stock.getMinimumLevel()) {
-            dto.setStatus(Constants.STATUS_REORDER);
+            dto.setStatus("REORDER");
         } else if (stock.getQuantity() <= stock.getMinimumLevel() * 2) {
-            dto.setStatus(Constants.STATUS_LOW);
+            dto.setStatus("LOW");
         } else {
-            dto.setStatus(Constants.STATUS_OK);
+            dto.setStatus("OK");
         }
-
-        log.debug("Stock status for product '{}': {}", stock.getProduct().getName(), dto.getStatus());
         return dto;
     }
 }
