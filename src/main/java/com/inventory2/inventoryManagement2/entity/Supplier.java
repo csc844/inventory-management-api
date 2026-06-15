@@ -9,12 +9,14 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 @Entity
 @Table(
         name = "suppliers",
         indexes = {
                 @Index(name = "idx_supplier_email", columnList = "email", unique = true),
-                @Index(name = "idx_supplier_name",  columnList = "name")
+                @Index(name = "idx_supplier_name", columnList = "name")
         }
 )
 @Data
@@ -35,6 +37,7 @@ public class Supplier {
 
     private LocalDateTime createdAt;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "supplier")
     private List<Product> products;
 }

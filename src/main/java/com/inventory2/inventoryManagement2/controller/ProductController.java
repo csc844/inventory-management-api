@@ -1,12 +1,11 @@
 package com.inventory2.inventoryManagement2.controller;
 
-import com.inventory2.inventoryManagement2.dto.ProductRequestDto;
-import com.inventory2.inventoryManagement2.dto.ProductResponseDto;
 import com.inventory2.inventoryManagement2.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import com.inventory2.inventoryManagement2.entity.Product;
 
 @RestController
 @RequestMapping("/products")
@@ -17,7 +16,7 @@ public class ProductController {
 
     // CREATE PRODUCT
     @PostMapping
-    public ProductResponseDto createProduct(@Valid @RequestBody ProductRequestDto dto) {
-        return productService.createProduct(dto);
+    public Product createProduct(@Valid @RequestBody  Product product) {
+        return productService.createProduct(product);
     }
 }

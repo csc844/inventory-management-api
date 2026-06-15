@@ -5,7 +5,7 @@ import com.inventory2.inventoryManagement2.dto.SupplierRequestDto;
 import com.inventory2.inventoryManagement2.dto.SupplierResponseDto;
 import com.inventory2.inventoryManagement2.entity.Supplier;
 import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
-import com.inventory2.inventoryManagement2.repository.SupplierRepository;
+import com.inventory2.inventoryManagement2.repository.GenericRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,7 +26,7 @@ public class SupplierService {
     private static final String SUPPLIER_KEY_PREFIX = "supplier:";
     private static final String ALL_SUPPLIERS_KEY = "all_suppliers";
 
-    private final SupplierRepository supplierRepository;
+    private final GenericRepository repository;
     private final StringRedisTemplate redisTemplate;
     private final LruCacheService lruCacheService;
     private final ObjectMapper objectMapper;
@@ -42,7 +42,7 @@ public class SupplierService {
                 .phone(dto.getPhone())
                 .build();
 
-        Supplier saved = supplierRepository.save(supplier);
+        Supplier saved = repository.save(supplier);
         SupplierResponseDto response = mapToDto(saved);
 
         putToRedis(SUPPLIER_KEY_PREFIX + saved.getId(), response);
@@ -59,13 +59,16 @@ public class SupplierService {
 
         List<SupplierResponseDto> cached = lruCacheService.get(ALL_SUPPLIERS_KEY);
         if (cached != null) {
-            log.debug("LRU cache hit for all suppliers");
+            log.info("LRU cache hit for all suppliers");
             return cached;
         }
 
-        log.debug("LRU cache miss, querying DB");
-        List<SupplierResponseDto> result = supplierRepository.findAll()
-                .stream().map(this::mapToDto).collect(Collectors.toList());
+        log.info("LRU cache miss, querying DB");
+        List<SupplierResponseDto> result = repository
+                .findAll(Supplier.class)
+                .stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
 
         lruCacheService.put(ALL_SUPPLIERS_KEY, result);
         return result;
@@ -79,13 +82,16 @@ public class SupplierService {
 
         SupplierResponseDto cached = getFromRedis(key, SupplierResponseDto.class);
         if (cached != null) {
-            log.debug("Redis cache hit for supplier id: {}", id);
+            log.info("Redis cache hit for supplier id: {}", id);
             return cached;
         }
 
-        log.debug("Redis cache miss, querying DB for supplier id: {}", id);
-        Supplier supplier = supplierRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + id));
+        log.info("Redis cache miss, querying DB for supplier id: {}", id);
+        Supplier supplier = repository
+                .findById(Supplier.class, id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Supplier not found with id: " + id));
 
         SupplierResponseDto response = mapToDto(supplier);
         putToRedis(key, response);
@@ -97,14 +103,16 @@ public class SupplierService {
     public SupplierResponseDto updateSupplier(Long id, SupplierRequestDto dto) {
         log.info("Updating supplier with id: {}", id);
 
-        Supplier supplier = supplierRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + id));
-
+        Supplier supplier = repository
+                .findById(Supplier.class, id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Supplier not found with id: " + id));
         supplier.setName(dto.getName());
         supplier.setEmail(dto.getEmail());
         supplier.setPhone(dto.getPhone());
 
-        Supplier updated = supplierRepository.save(supplier);
+        Supplier updated = repository.save(supplier);
         SupplierResponseDto response = mapToDto(updated);
 
         putToRedis(SUPPLIER_KEY_PREFIX + id, response);
@@ -119,10 +127,13 @@ public class SupplierService {
     public void deleteSupplier(Long id) {
         log.info("Deleting supplier with id: {}", id);
 
-        Supplier supplier = supplierRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + id));
+        Supplier supplier = repository
+                .findById(Supplier.class, id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Supplier not found with id: " + id));
 
-        supplierRepository.delete(supplier);
+        repository.delete(supplier);
 
         redisTemplate.delete(SUPPLIER_KEY_PREFIX + id);
         lruCacheService.evict(ALL_SUPPLIERS_KEY);
@@ -135,7 +146,7 @@ public class SupplierService {
     private void putToRedis(String key, Object value) {
         try {
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), Duration.ofMinutes(30));
-            log.debug("Saved to Redis: {}", key);
+            log.info("Saved to Redis: {}", key);
         } catch (Exception e) {
             log.warn("Redis write failed for key {}: {}", key, e.getMessage());
         }

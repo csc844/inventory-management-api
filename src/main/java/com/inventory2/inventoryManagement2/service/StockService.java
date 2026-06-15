@@ -8,8 +8,7 @@ import com.inventory2.inventoryManagement2.exception.InsufficientStockException;
 import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
 import com.inventory2.inventoryManagement2.kafka.KafkaProducerService;
 import com.inventory2.inventoryManagement2.kafka.StockEvent;
-import com.inventory2.inventoryManagement2.repository.ProductRepository;
-import com.inventory2.inventoryManagement2.repository.StockRepository;
+import com.inventory2.inventoryManagement2.repository.GenericRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,8 +27,7 @@ public class StockService {
 
     private static final String STOCK_KEY_PREFIX = "stock:";
 
-    private final StockRepository stockRepository;
-    private final ProductRepository productRepository;
+    private final GenericRepository repository;
     private final KafkaProducerService kafkaProducerService;
     private final StringRedisTemplate redisTemplate;
     private final Cache<String, StockResponseDto> stockCaffeineCache;
@@ -40,10 +38,20 @@ public class StockService {
     public StockResponseDto addStock(Long productId, Integer quantity) {
         log.info("Adding {} units to productId: {}", quantity, productId);
 
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+        Product product = repository
+                .findById(Product.class, productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Product not found with id: " + productId));
 
-        Stock stock = stockRepository.findByProductId(productId).orElse(null);
+        Stock stock = repository.findByProperty(
+                        Stock.class,
+                        "FROM Stock s WHERE s.product.id = :productId",
+                        "productId",
+                        productId
+                ).stream()
+                .findFirst()
+                .orElse(null);
         if (stock == null) {
             stock = Stock.builder()
                     .product(product)
@@ -55,7 +63,7 @@ public class StockService {
             stock.setQuantity(stock.getQuantity() + quantity);
         }
 
-        Stock saved = stockRepository.save(stock);
+        Stock saved = repository.save(stock);
         StockResponseDto response = mapToDto(saved);
 
         putToRedis(STOCK_KEY_PREFIX + productId, response);
@@ -79,8 +87,16 @@ public class StockService {
     public StockResponseDto removeStock(Long productId, Integer quantity) {
         log.info("Removing {} units from productId: {}", quantity, productId);
 
-        Stock stock = stockRepository.findByProductId(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Stock not found for product id: " + productId));
+        Stock stock = repository.findByProperty(
+                        Stock.class,
+                        "FROM Stock s WHERE s.product.id = :productId",
+                        "productId",
+                        productId
+                ).stream()
+                .findFirst()
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Stock not found for product id: " + productId));
 
         if (stock.getQuantity() < quantity) {
             throw new InsufficientStockException(
@@ -88,7 +104,7 @@ public class StockService {
         }
 
         stock.setQuantity(stock.getQuantity() - quantity);
-        Stock saved = stockRepository.save(stock);
+        Stock saved = repository.save(stock);
         StockResponseDto response = mapToDto(saved);
 
         putToRedis(STOCK_KEY_PREFIX + productId, response);
@@ -120,8 +136,16 @@ public class StockService {
         }
 
         log.debug("Caffeine cache miss, querying DB for productId: {}", productId);
-        Stock stock = stockRepository.findByProductId(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Stock not found for product id: " + productId));
+        Stock stock = repository.findByProperty(
+                        Stock.class,
+                        "FROM Stock s WHERE s.product.id = :productId",
+                        "productId",
+                        productId
+                ).stream()
+                .findFirst()
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Stock not found for product id: " + productId));
 
         StockResponseDto response = mapToDto(stock);
         stockCaffeineCache.put(key, response);

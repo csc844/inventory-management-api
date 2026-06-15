@@ -1,7 +1,7 @@
 package com.inventory2.inventoryManagement2.kafka;
 
 import com.inventory2.inventoryManagement2.entity.StockHistory;
-import com.inventory2.inventoryManagement2.repository.StockHistoryRepository;
+import com.inventory2.inventoryManagement2.repository.GenericRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class KafkaConsumerService {
 
-    private final StockHistoryRepository stockHistoryRepository;
+    private final GenericRepository repository;
 
     @KafkaListener(topics = "stock-events", groupId = "inventory-group",
             containerFactory = "kafkaListenerContainerFactory")
@@ -30,7 +30,7 @@ public class KafkaConsumerService {
                 .timestamp(event.getTimestamp())
                 .build();
 
-        stockHistoryRepository.save(history);
+        repository.save(history);
         log.info("Saved stock history record for productId: {}, operation: {}", event.getProductId(), event.getOperation());
     }
 }
