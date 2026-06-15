@@ -1,6 +1,7 @@
 package com.inventory2.inventoryManagement2.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.inventory2.inventoryManagement2.cache.RedisCacheService;
 import com.inventory2.inventoryManagement2.entity.Product;
 import com.inventory2.inventoryManagement2.entity.Stock;
 import com.inventory2.inventoryManagement2.exception.InsufficientStockException;
@@ -10,7 +11,6 @@ import com.inventory2.inventoryManagement2.kafka.StockEvent;
 import com.inventory2.inventoryManagement2.repository.GenericRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -28,13 +28,13 @@ public class StockService {
 
     private final GenericRepository repository;
     private final KafkaProducerService kafkaProducerService;
-    private final StringRedisTemplate redisTemplate;
+    private final RedisCacheService redisCacheService;
     private final Cache<String, Stock> stockCaffeineCache;
     private final ObjectMapper objectMapper;
 
     // ---------------- ADD STOCK — writes to Redis + Caffeine, publishes Kafka event ----------------
 
-    public Stock addStock(Long productId, Integer quantity) {
+    public void addStock(Long productId, Integer quantity) {
         log.info("Adding {} units to productId: {}", quantity, productId);
 
         Product product = repository
@@ -63,7 +63,7 @@ public class StockService {
         }
 
         Stock saved = repository.save(stock);
-        putToRedis(STOCK_KEY_PREFIX + productId, saved);
+        redisCacheService.put(STOCK_KEY_PREFIX + productId, saved);
         stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, saved);
 
         kafkaProducerService.publishStockEvent(StockEvent.builder()
@@ -76,7 +76,6 @@ public class StockService {
                 .build());
 
         log.info("Stock updated for productId: {}, new quantity: {}", productId, saved.getQuantity());
-        return saved;
     }
 
     // ---------------- REMOVE STOCK — writes to Redis + Caffeine, publishes Kafka event ----------------
@@ -102,9 +101,8 @@ public class StockService {
 
         stock.setQuantity(stock.getQuantity() - quantity);
         Stock saved = repository.save(stock);
-       putToRedis(STOCK_KEY_PREFIX + productId, saved);
-
-       stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, saved);
+        redisCacheService.put(STOCK_KEY_PREFIX + productId, saved);
+        stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, saved);
 
 
         kafkaProducerService.publishStockEvent(StockEvent.builder()
@@ -123,40 +121,49 @@ public class StockService {
     // ---------------- GET STOCK — Caffeine cache ----------------
 
     public Stock getStock(Long productId) {
+
         log.info("Fetching stock for productId: {}", productId);
+
         String key = STOCK_KEY_PREFIX + productId;
 
-        Stock cached = stockCaffeineCache.getIfPresent(key);
-        if (cached != null) {
+        // Level 1: Caffeine
+        Stock caffeineStock = stockCaffeineCache.getIfPresent(key);
+
+        if (caffeineStock != null) {
             log.debug("Caffeine cache hit for productId: {}", productId);
-            return cached;
+            return caffeineStock;
         }
 
-        log.debug("Caffeine cache miss, querying DB for productId: {}", productId);
+        // Level 2: Redis
+        Stock redisStock = redisCacheService.get(key, Stock.class);
+
+        if (redisStock != null) {
+            log.info("Redis cache hit for productId: {}", productId);
+
+            stockCaffeineCache.put(key, redisStock);
+
+            return redisStock;
+        }
+
+        // Level 3: Database
+        log.info("Cache miss, querying DB for productId: {}", productId);
+
         Stock stock = repository.findByProperty(
                         Stock.class,
                         "FROM Stock s WHERE s.product.id = :productId",
                         "productId",
-                        productId
-                ).stream()
+                        productId)
+                .stream()
                 .findFirst()
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Stock not found for product id: " + productId));
 
         stockCaffeineCache.put(key, stock);
+
+        redisCacheService.put(key, stock);
+
         return stock;
-    }
-
-    // ---------------- Redis helper ----------------
-
-    private void putToRedis(String key, Object value) {
-        try {
-            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), Duration.ofMinutes(30));
-            log.debug("Saved to Redis: {}", key);
-        } catch (Exception e) {
-            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
-        }
     }
 
 

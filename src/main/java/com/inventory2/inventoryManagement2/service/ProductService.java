@@ -1,5 +1,6 @@
 package com.inventory2.inventoryManagement2.service;
-
+import com.inventory2.inventoryManagement2.util.Constants;
+import com.inventory2.inventoryManagement2.cache.RedisCacheService;
 import com.inventory2.inventoryManagement2.entity.Product;
 import com.inventory2.inventoryManagement2.entity.Supplier;
 import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
@@ -7,7 +8,6 @@ import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -24,44 +24,44 @@ public class ProductService {
     private static final String PRODUCT_KEY_PREFIX = "product:";
 
     private final GenericRepository repository;
-    private final StringRedisTemplate redisTemplate;
+    private final RedisCacheService redisCacheService;
     private final ObjectMapper objectMapper;
 
     // ---------------- CREATE — writes to Redis cache ----------------
-    public Product createProduct(Product product) {
+    public void createProduct(Product product) {
 
         log.info("Creating product with name: {}", product.getName());
 
-        if (product.getSupplier() == null || product.getSupplier().getId() == null) {
-            throw new IllegalArgumentException("Supplier id is required");
-        }
+        validateSupplier(product);
 
-        Long supplierId = product.getSupplier().getId();
-
-        Supplier supplier = repository.findById(Supplier.class, supplierId)
+        Supplier supplier = repository.findById(
+                        Supplier.class,
+                        product.getSupplier().getId())
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
-                                "Supplier not found with id: " + supplierId));
+                                "Supplier not found with id: "
+                                        + product.getSupplier().getId()));
+
         product.setSupplier(supplier);
         product.setCreatedAt(LocalDateTime.now());
 
         Product saved = repository.save(product);
 
-        putToRedis(PRODUCT_KEY_PREFIX + saved.getId(), saved);
+        redisCacheService.put(
+                Constants.PRODUCT_KEY_PREFIX + saved.getId(),
+                saved
+        );
 
         log.info("Product created with id: {}", saved.getId());
-
-        return saved;
     }
 
-    // ---------------- Redis helper ----------------
+    private void validateSupplier(Product product) {
 
-    private void putToRedis(String key, Object value) {
-        try {
-            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), Duration.ofMinutes(30));
-            log.info("Saved to Redis: {}", key);
-        } catch (Exception e) {
-            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
+        if (product.getSupplier() == null ||
+                product.getSupplier().getId() == null) {
+
+            throw new IllegalArgumentException(
+                    "Supplier id is required");
         }
     }
 }

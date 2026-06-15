@@ -31,7 +31,7 @@ public class SupplierService {
 
     // ---------------- CREATE — writes to Redis cache ----------------
 
-    public Supplier createSupplier(Supplier supplier) {
+    public void createSupplier(Supplier supplier) {
 
         log.info("Creating supplier with name: {}", supplier.getName());
 
@@ -42,7 +42,7 @@ public class SupplierService {
 
         log.info("Supplier created with id: {}", saved.getId());
 
-        return saved;
+
     }
     // ---------------- GET ALL — LRU cache ----------------
 
@@ -91,7 +91,7 @@ public class SupplierService {
 
     // ---------------- UPDATE — writes to Redis cache ----------------
 
-    public Supplier updateSupplier(Long id, Supplier request) {
+    public void updateSupplier(Long id, Supplier request) {
 
         Supplier supplier = repository
                 .findById(Supplier.class, id)
@@ -108,7 +108,7 @@ public class SupplierService {
         putToRedis(SUPPLIER_KEY_PREFIX + id, updated);
         lruCacheService.evict(ALL_SUPPLIERS_KEY);
 
-        return updated;
+
     }
 
     // ---------------- DELETE — evicts from Redis and LRU ----------------

@@ -1,5 +1,6 @@
 package com.inventory2.inventoryManagement2.cache;
 
+import com.inventory2.inventoryManagement2.util.Constants;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -9,15 +10,18 @@ import java.util.Map;
 @Component
 public class LruCacheService {
 
-    private static final int MAX_SIZE = 100;
-
     private final Map<String, Object> cache =
             Collections.synchronizedMap(
-                    new LinkedHashMap<>(MAX_SIZE, 0.75f, true) {
+                    new LinkedHashMap<>(
+                            Constants.LRU_CACHE_MAX_SIZE,
+                            Constants.LRU_CACHE_LOAD_FACTOR,
+                            true) {
+
                         @Override
                         protected boolean removeEldestEntry(
                                 Map.Entry<String, Object> eldest) {
-                            return size() > MAX_SIZE;
+
+                            return size() > Constants.LRU_CACHE_MAX_SIZE;
                         }
                     }
             );
