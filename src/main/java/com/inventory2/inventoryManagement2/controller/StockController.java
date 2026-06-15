@@ -1,10 +1,11 @@
 package com.inventory2.inventoryManagement2.controller;
 
-import com.inventory2.inventoryManagement2.dto.StockResponseDto;
+import com.inventory2.inventoryManagement2.entity.Stock;
 import com.inventory2.inventoryManagement2.service.StockService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -14,23 +15,25 @@ public class StockController {
 
     private final StockService stockService;
 
-    // ADD STOCK
     @PostMapping("/add")
-    public StockResponseDto addStock(@Valid @RequestParam Long productId,
-                                     @Valid @RequestParam Integer quantity) {
-        return stockService.addStock(productId, quantity);
+    public ResponseEntity<String> addStock(@RequestParam Long productId,
+                                           @RequestParam Integer quantity) {
+
+        stockService.addStock(productId, quantity);
+
+        return ResponseEntity.ok("Stock added successfully");
     }
 
-    // REMOVE STOCK
     @PostMapping("/remove")
-    public StockResponseDto removeStock(@Valid @RequestParam Long productId,
-                                        @Valid @RequestParam Integer quantity) {
+    public Stock removeStock(@RequestParam Long productId,
+                             @RequestParam Integer quantity) {
+
         return stockService.removeStock(productId, quantity);
     }
 
-    // GET STOCK
     @GetMapping("/{productId}")
-    public StockResponseDto getStock(@Valid @PathVariable Long productId) {
+    public Stock getStock(@PathVariable Long productId) {
+
         return stockService.getStock(productId);
     }
 }

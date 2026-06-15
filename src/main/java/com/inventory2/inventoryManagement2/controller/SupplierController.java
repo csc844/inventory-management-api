@@ -1,11 +1,11 @@
 package com.inventory2.inventoryManagement2.controller;
 
-import com.inventory2.inventoryManagement2.dto.SupplierRequestDto;
-import com.inventory2.inventoryManagement2.dto.SupplierResponseDto;
+import com.inventory2.inventoryManagement2.entity.Supplier;
 import com.inventory2.inventoryManagement2.service.SupplierService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,29 +17,33 @@ public class SupplierController {
 
     private final SupplierService supplierService;
 
-    // CREATE
     @PostMapping
-    public SupplierResponseDto createSupplier(@RequestBody SupplierRequestDto dto) {
-        return supplierService.createSupplier(dto);
+    public ResponseEntity<String> createSupplier(
+            @Valid @RequestBody Supplier supplier) {
+
+        supplierService.createSupplier(supplier);
+
+        return ResponseEntity.ok("Supplier created successfully");
     }
 
-    // GET ALL
     @GetMapping
-    public List<SupplierResponseDto> getAll() {
+    public List<Supplier> getAll() {
         return supplierService.getAllSuppliers();
     }
 
-    // GET BY ID
     @GetMapping("/{id}")
-    public SupplierResponseDto getById(@Valid @PathVariable Long id) {
+    public Supplier getById(@PathVariable Long id) {
         return supplierService.getSupplierById(id);
     }
 
-    // UPDATE
     @PutMapping("/{id}")
-    public SupplierResponseDto update(@Valid @PathVariable Long id,
-                                      @Valid @RequestBody SupplierRequestDto dto) {
-        return supplierService.updateSupplier(id, dto);
+    public ResponseEntity<String> update(
+            @PathVariable Long id,
+            @Valid @RequestBody Supplier supplier) {
+
+        supplierService.updateSupplier(id, supplier);
+
+        return ResponseEntity.ok("Supplier updated successfully");
     }
 
     // DELETE

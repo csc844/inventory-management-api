@@ -1,7 +1,6 @@
 package com.inventory2.inventoryManagement2.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.inventory2.inventoryManagement2.dto.StockResponseDto;
 import com.inventory2.inventoryManagement2.entity.Product;
 import com.inventory2.inventoryManagement2.entity.Stock;
 import com.inventory2.inventoryManagement2.exception.InsufficientStockException;
@@ -30,12 +29,12 @@ public class StockService {
     private final GenericRepository repository;
     private final KafkaProducerService kafkaProducerService;
     private final StringRedisTemplate redisTemplate;
-    private final Cache<String, StockResponseDto> stockCaffeineCache;
+    private final Cache<String, Stock> stockCaffeineCache;
     private final ObjectMapper objectMapper;
 
     // ---------------- ADD STOCK — writes to Redis + Caffeine, publishes Kafka event ----------------
 
-    public StockResponseDto addStock(Long productId, Integer quantity) {
+    public Stock addStock(Long productId, Integer quantity) {
         log.info("Adding {} units to productId: {}", quantity, productId);
 
         Product product = repository
@@ -64,10 +63,8 @@ public class StockService {
         }
 
         Stock saved = repository.save(stock);
-        StockResponseDto response = mapToDto(saved);
-
-        putToRedis(STOCK_KEY_PREFIX + productId, response);
-        stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, response);
+        putToRedis(STOCK_KEY_PREFIX + productId, saved);
+        stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, saved);
 
         kafkaProducerService.publishStockEvent(StockEvent.builder()
                 .productId(productId)
@@ -79,12 +76,12 @@ public class StockService {
                 .build());
 
         log.info("Stock updated for productId: {}, new quantity: {}", productId, saved.getQuantity());
-        return response;
+        return saved;
     }
 
     // ---------------- REMOVE STOCK — writes to Redis + Caffeine, publishes Kafka event ----------------
 
-    public StockResponseDto removeStock(Long productId, Integer quantity) {
+    public Stock removeStock(Long productId, Integer quantity) {
         log.info("Removing {} units from productId: {}", quantity, productId);
 
         Stock stock = repository.findByProperty(
@@ -105,10 +102,10 @@ public class StockService {
 
         stock.setQuantity(stock.getQuantity() - quantity);
         Stock saved = repository.save(stock);
-        StockResponseDto response = mapToDto(saved);
+       putToRedis(STOCK_KEY_PREFIX + productId, saved);
 
-        putToRedis(STOCK_KEY_PREFIX + productId, response);
-        stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, response);
+       stockCaffeineCache.put(STOCK_KEY_PREFIX + productId, saved);
+
 
         kafkaProducerService.publishStockEvent(StockEvent.builder()
                 .productId(productId)
@@ -120,16 +117,16 @@ public class StockService {
                 .build());
 
         log.info("Stock removed for productId: {}, remaining: {}", productId, saved.getQuantity());
-        return response;
+        return saved;
     }
 
     // ---------------- GET STOCK — Caffeine cache ----------------
 
-    public StockResponseDto getStock(Long productId) {
+    public Stock getStock(Long productId) {
         log.info("Fetching stock for productId: {}", productId);
         String key = STOCK_KEY_PREFIX + productId;
 
-        StockResponseDto cached = stockCaffeineCache.getIfPresent(key);
+        Stock cached = stockCaffeineCache.getIfPresent(key);
         if (cached != null) {
             log.debug("Caffeine cache hit for productId: {}", productId);
             return cached;
@@ -147,9 +144,8 @@ public class StockService {
                         new ResourceNotFoundException(
                                 "Stock not found for product id: " + productId));
 
-        StockResponseDto response = mapToDto(stock);
-        stockCaffeineCache.put(key, response);
-        return response;
+        stockCaffeineCache.put(key, stock);
+        return stock;
     }
 
     // ---------------- Redis helper ----------------
@@ -163,23 +159,5 @@ public class StockService {
         }
     }
 
-    // ---------------- Mapper ----------------
 
-    private StockResponseDto mapToDto(Stock stock) {
-        StockResponseDto dto = new StockResponseDto();
-        dto.setId(stock.getId());
-        dto.setProductName(stock.getProduct().getName());
-        dto.setQuantity(stock.getQuantity());
-        dto.setMinimumLevel(stock.getMinimumLevel());
-        dto.setCreatedAt(stock.getCreatedAt());
-
-        if (stock.getQuantity() <= stock.getMinimumLevel()) {
-            dto.setStatus("REORDER");
-        } else if (stock.getQuantity() <= stock.getMinimumLevel() * 2) {
-            dto.setStatus("LOW");
-        } else {
-            dto.setStatus("OK");
-        }
-        return dto;
-    }
 }

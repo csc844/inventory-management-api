@@ -1,8 +1,6 @@
 package com.inventory2.inventoryManagement2.service;
 
 import com.inventory2.inventoryManagement2.cache.LruCacheService;
-import com.inventory2.inventoryManagement2.dto.SupplierRequestDto;
-import com.inventory2.inventoryManagement2.dto.SupplierResponseDto;
 import com.inventory2.inventoryManagement2.entity.Supplier;
 import com.inventory2.inventoryManagement2.exception.ResourceNotFoundException;
 import com.inventory2.inventoryManagement2.repository.GenericRepository;
@@ -33,93 +31,84 @@ public class SupplierService {
 
     // ---------------- CREATE — writes to Redis cache ----------------
 
-    public SupplierResponseDto createSupplier(SupplierRequestDto dto) {
-        log.info("Creating supplier with name: {}", dto.getName());
+    public Supplier createSupplier(Supplier supplier) {
 
-        Supplier supplier = Supplier.builder()
-                .name(dto.getName())
-                .email(dto.getEmail())
-                .phone(dto.getPhone())
-                .build();
+        log.info("Creating supplier with name: {}", supplier.getName());
 
         Supplier saved = repository.save(supplier);
-        SupplierResponseDto response = mapToDto(saved);
 
-        putToRedis(SUPPLIER_KEY_PREFIX + saved.getId(), response);
+        putToRedis(SUPPLIER_KEY_PREFIX + saved.getId(), saved);
         lruCacheService.evict(ALL_SUPPLIERS_KEY);
 
         log.info("Supplier created with id: {}", saved.getId());
-        return response;
-    }
 
+        return saved;
+    }
     // ---------------- GET ALL — LRU cache ----------------
 
-    public List<SupplierResponseDto> getAllSuppliers() {
-        log.info("Fetching all suppliers");
+    public List<Supplier> getAllSuppliers() {
 
-        List<SupplierResponseDto> cached = lruCacheService.get(ALL_SUPPLIERS_KEY);
+        List<Supplier> cached = lruCacheService.get(ALL_SUPPLIERS_KEY);
+
         if (cached != null) {
             log.info("LRU cache hit for all suppliers");
             return cached;
         }
 
         log.info("LRU cache miss, querying DB");
-        List<SupplierResponseDto> result = repository
-                .findAll(Supplier.class)
-                .stream()
-                .map(this::mapToDto)
-                .collect(Collectors.toList());
+
+        List<Supplier> result = repository.findAll(Supplier.class);
 
         lruCacheService.put(ALL_SUPPLIERS_KEY, result);
+
         return result;
     }
-
     // ---------------- GET BY ID — Redis cache ----------------
 
-    public SupplierResponseDto getSupplierById(Long id) {
+    public Supplier getSupplierById(Long id) {
+
         log.info("Fetching supplier with id: {}", id);
+
         String key = SUPPLIER_KEY_PREFIX + id;
 
-        SupplierResponseDto cached = getFromRedis(key, SupplierResponseDto.class);
+        Supplier cached = getFromRedis(key, Supplier.class);
+
         if (cached != null) {
             log.info("Redis cache hit for supplier id: {}", id);
             return cached;
         }
 
-        log.info("Redis cache miss, querying DB for supplier id: {}", id);
         Supplier supplier = repository
                 .findById(Supplier.class, id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Supplier not found with id: " + id));
 
-        SupplierResponseDto response = mapToDto(supplier);
-        putToRedis(key, response);
-        return response;
+        putToRedis(key, supplier);
+
+        return supplier;
     }
 
     // ---------------- UPDATE — writes to Redis cache ----------------
 
-    public SupplierResponseDto updateSupplier(Long id, SupplierRequestDto dto) {
-        log.info("Updating supplier with id: {}", id);
+    public Supplier updateSupplier(Long id, Supplier request) {
 
         Supplier supplier = repository
                 .findById(Supplier.class, id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Supplier not found with id: " + id));
-        supplier.setName(dto.getName());
-        supplier.setEmail(dto.getEmail());
-        supplier.setPhone(dto.getPhone());
+
+        supplier.setName(request.getName());
+        supplier.setEmail(request.getEmail());
+        supplier.setPhone(request.getPhone());
 
         Supplier updated = repository.save(supplier);
-        SupplierResponseDto response = mapToDto(updated);
 
-        putToRedis(SUPPLIER_KEY_PREFIX + id, response);
+        putToRedis(SUPPLIER_KEY_PREFIX + id, updated);
         lruCacheService.evict(ALL_SUPPLIERS_KEY);
 
-        log.info("Supplier updated with id: {}", id);
-        return response;
+        return updated;
     }
 
     // ---------------- DELETE — evicts from Redis and LRU ----------------
@@ -160,17 +149,5 @@ public class SupplierService {
             log.warn("Redis read failed for key {}: {}", key, e.getMessage());
         }
         return null;
-    }
-
-    // ---------------- Mapper ----------------
-
-    private SupplierResponseDto mapToDto(Supplier supplier) {
-        SupplierResponseDto dto = new SupplierResponseDto();
-        dto.setId(supplier.getId());
-        dto.setName(supplier.getName());
-        dto.setEmail(supplier.getEmail());
-        dto.setPhone(supplier.getPhone());
-        dto.setTotalProducts(supplier.getProducts() != null ? supplier.getProducts().size() : 0);
-        return dto;
     }
 }

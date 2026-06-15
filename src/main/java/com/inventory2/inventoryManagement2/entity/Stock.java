@@ -1,5 +1,6 @@
 package com.inventory2.inventoryManagement2.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -31,6 +32,7 @@ public class Stock {
 
     private LocalDateTime createdAt;
 
+    @JsonIgnore
     @OneToOne
     @JoinColumn(name = "product_id")
     private Product product;
